@@ -1,0 +1,162 @@
+#Docker Swarm Tutorial (Macbook)
+- Container Orchestration systems is where the next action is likely to be in the movement towards Building →Shipping → Running containers at scale
+
+Features include Docker Swarm:
+- Health Checks on the Containers
+- Launching a fixed set of Containers for a particular Docker image
+- Scaling the number of Containers up and down depending on the load
+- Performing rolling update of software across containers
+- and more…
+
+1) Create Docker Machines
+- installing VirtualBox:
+$ brew cask install virtualbox
+
+- create docker machine manager1 with virtualbox
+$ docker-machine create --driver virtualbox manager1
+
+- view again docker machine manager1
+$ docker-machine ls
+
+- get ip adress of manager1
+$ docker-machine ip manager1
+
+2) Our Swarm Cluster
+- you can ssh to the machine: docker-machine ssh <machine-name>
+$ docker-machine ssh manager1
+
+- init docker swarm: $ docker swarm init --advertise-addr MANAGER_IP
+docker@manager1:~$ docker swarm init — advertise-addr 192.168.1.8
+Swarm initialized: current node (5oof62fetd4gry7o09jd9e0kf) is now a manager.
+To add a worker to this swarm, run the following command:
+docker swarm join \
+ — token SWMTKN-1–5mgyf6ehuc5pfbmar00njd3oxv8nmjhteejaald3yzbef7osl1-ad7b1k8k3bl3aa3k3q13zivqd \
+ 192.168.1.8:2377
+To add a manager to this swarm, run ‘docker swarm join-token manager’ and follow the instructions.
+docker@manager1:~$
+
+- you can see swarm status:
+docker@manager1:~$ docker node ls
+
+3) Joining as Worker Node
+docker@manager1:~$ docker swarm join-token worker
+To add a worker to this swarm, run the following command:
+docker swarm join \
+ — token SWMTKN-1–5mgyf6ehuc5pfbmar00njd3oxv8nmjhteejaald3yzbef7osl1-ad7b1k8k3bl3aa3k3q13zivqd \
+ 192.168.1.8:2377
+docker@manager1:~$
+
+4) Joining as Manager Node
+docker@manager1:~$ docker swarm join-token manager
+To add a manager to this swarm, run the following command:
+docker swarm join \
+ — token SWMTKN-1–5mgyf6ehuc5pfbmar00njd3oxv8nmjhteejaald3yzbef7osl1–8xo0cmd6bryjrsh6w7op4enos \
+ 192.168.1.8:2377
+docker@manager1:~$
+
+5) Adding Worker Nodes to our Swarm
+- SSH into the worker1 machine i.e. docker-machine ssh worker1
+- Then fire the respective command that I got for joining as a worker. In my case the output is shown below:
+docker@worker1:~$ docker swarm join \
+ — token SWMTKN-1–5mgyf6ehuc5pfbmar00njd3oxv8nmjhteejaald3yzbef7osl1-ad7b1k8k3bl3aa3k3q13zivqd \
+ 192.168.1.8:2377
+This node joined a swarm as a worker.
+docker@worker1:~$
+
+- do the same with worker 2/3/4/5 and view status
+docker@manager1:~$ docker node ls
+ID                           HOSTNAME  STATUS  AVAILABILITY  MANAGER STATUS
+1ndqsslh7fpquc7fi35leig54    worker4   Ready   Active
+1qh4aat24nts5izo3cgsboy77    worker5   Ready   Active
+25nwmw5eg7a5ms4ch93aw0k03    worker3   Ready   Active
+5oof62fetd4gry7o09jd9e0kf *  manager1  Ready   Active        Leader
+5pm9f2pzr8ndijqkkblkgqbsf    worker2   Ready   Active
+9yq4lcmfg0382p39euk8lj9p4    worker1   Ready   Active
+docker@manager1:~$
+
+6) Create a Service
+- What is the Docker image that you want to run. In our case, we will run the standard nginx image that is officially available from the Docker hub.
+- We will expose our service on port 80.
+- We can specify the number of containers (or instances) to launch. This is specified via the replicas parameter.
+- We will decide on the name for our service. And keep that handy.
+
+- docker service create
+docker@manager1:~$ docker service create --replicas 5 -p 80:80 --name web nginx
+ctolq1t4h2o859t69j9pptyye
+
+docker@manager1:~$ docker service ls
+ID            NAME  REPLICAS  IMAGE  COMMAND
+ctolq1t4h2o8  web   0/5       nginx
+
+- see the status of the service and how it is getting orchestrated to the different nodes
+docker@manager1:~$ docker service ps web
+ID  NAME   IMAGE  NODE      DESIRED STATE  CURRENT STATE      ERROR
+7i*  web.1  nginx  worker3   Running        Preparing 2 minutes ago
+17*  web.2  nginx  manager1  Running        Running 22 seconds ago
+ey*  web.3  nginx  worker2   Running        Running 2 minutes ago
+bd*  web.4  nginx  worker5   Running        Running 45 seconds ago
+dw*  web.5  nginx  worker4   Running        Running 2 minutes ago
+
+- wait a bit and finally
+docker@manager1:~$ docker service ls
+ID              NAME REPLICAS IMAGE COMMAND
+ctolq1t4h2o8    web  5/5      nginx
+docker@manager1:~$
+
+- you will find that the nginx daemon has been launched: docker ps
+docker@manager1:~$ docker ps
+CONTAINER ID        IMAGE               COMMAND                  CREATED             STATUS              PORTS               NAMES
+933309b04630        nginx:latest        "nginx -g 'daemon off"   2 minutes ago       Up 2 minutes        80/tcp, 443/tcp     web.2.17d502y6qjhd1wqjle13nmjvc
+docker@manager1:~$
+
+7) Access the services web by using 192.168.1.8, 192.168.1.9
+
+8) Scaling up and Scaling down
+- scale from 5 to 8
+$ docker service scale web=8
+web scaled to 8
+
+docker@manager1:~$ docker service ls
+ID           NAME REPLICAS IMAGE COMMAND
+ctolq1t4h2o8 web  5/8      nginx
+
+9) Inspecting nodes
+$ docker node inspect self
+$ docker node inspect worker1
+
+10) Draining a node
+When the note is active, it can receive new tasks
+- during a service update to scale up
+- during a rolling update
+- when you set another node to Drain availability
+- when a task fails on another active node
+
+Set availability to drain
+docker@manager1:~$ docker node update --availability drain worker1
+
+docker@manager1:~$ docker service ps web
+ID   NAME       IMAGE  NODE      DESIRED STATE  CURRENT STATE
+7i*  web.1      nginx  worker3   Running   Running about an hour ago
+17*  web.2      nginx  manager1  Running   Running about an hour ago
+ey*  web.3      nginx  worker2   Running   Running about an hour ago
+bd*  web.4      nginx  worker5   Running   Running about an hour ago
+dw*  web.5      nginx  worker4   Running   Running about an hour ago
+2u*  web.6      nginx  worker4   Running   Preparing about a min ago
+8t*   \_ web.6  nginx  worker1   Shutdown  Shutdown about a min ago
+b8*  web.7      nginx  manager1  Running   Running 49 minutes ago
+7a*  web.8      nginx  worker3   Running   Preparing about a min ago
+0k*   \_ web.8  nginx  worker1   Shutdown  Shutdown about a min ago
+docker@manager1:~$
+
+11) Remove the Service
+docker@manager1:~$ docker service rm web
+web
+
+docker@manager1:~$ docker service ls
+ID NAME REPLICAS IMAGE COMMAND
+docker@manager1:~$ docker service inspect web
+[]
+Error: no such service: web
+
+12) Applying Rolling Updates
+$ docker service update --image <imagename>:<version> web
